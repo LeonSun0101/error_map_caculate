@@ -1,0 +1,6 @@
+numpy>=1.26
+Pillow>=10.0
+PyWavelets>=1.4
+scipy>=1.14
+scikit-image>=0.25,<0.28
+pytest>=8.0
