@@ -17,7 +17,7 @@ pip install -r requirements.txt
 python main.py                          # 下载 Kodak kodim19 并全流程评价
 python main.py --image 本地图.png       # 用本地图, 跳过下载
 python main.py --out output --seed 42 --jpeg-quality 80 --tau 1.5 \
-    --edge-weight 2.0 --threshold-percentile 95 --threshold-floor 0.02
+    --edge-weight 2.0 --threshold-percentile 82 --threshold-floor 0.3
 ```
 
 ## 流水线
@@ -29,7 +29,7 @@ original → JPEG q80 (4:2:0) → 局部非线性扰动(G×I^γ) → color_sync 
 - **压缩**: PIL JPEG quality=80, subsampling=2（业界默认 4:2:0）
 - **扰动**: 平滑空间增益场 G∈[0.85,1.2] + 平滑空间 gamma 场 γ∈[0.8,1.1]，逐通道 `I'=clip(255·G·(I/255)^γ)`，模拟传输链路亮色变化（低频、局部、非线性）
 - **对齐**: `color_sync.align_to_reference`（单级 Haar DWT LL 子带增益场，只校正低频亮度，高频结构不动）
-- **评价**: 亮度 SSIM map → 低频抑制(σ=8) → 边缘密度先验(α=2) → 自适应阈值(max(percentile 95, 0.02)) → closing(3)+opening(2) → 连通域过滤
+- **评价**: 多指标融合误差图 (SSIM 损失 + 像素差 + 局部纹理损失 + 梯度损失, 各归一化后加权 1:2:1:1) → 低频抑制(σ=24) → 自适应阈值(max(percentile 82, 0.3)) → closing(3)+opening(2) → 连通域过滤
 
 ## 产出物 (output/)
 
