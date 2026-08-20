@@ -83,8 +83,8 @@
 <body>
 
 <header>
-  <h1>压缩误差标注工具 <span id="ver" style="font-size:11px;color:#888;font-weight:normal">v2.1 (矩形增强)</span></h1>
-  <span class="hint">滚轮缩放 · 左键拖动（三图同步）· 右键框选标注 · 标漏检/误检</span>
+  <h1>压缩误差标注工具 <span id="ver" style="font-size:11px;color:#888;font-weight:normal">v2.2 (Shift 切换)</span></h1>
+  <span class="hint">滚轮缩放 · 左键拖动（三图同步）· 右键框选标注 · <b style="color:#ffd479">Shift 按住切换原图/压缩图</b></span>
   <span class="spacer"></span>
   <select id="imgSelect"></select>
   <button id="imgPrev">◀ 上一张</button>
@@ -118,6 +118,7 @@
 // ========== 状态 ==========
 const KIND = ["original", "compressed", "overlay"];
 const LABELS = ["original", "compressed q80", "errormap 叠加"];
+const SWAP_MAP = { 0: 1, 1: 0 };   // Shift 切换: canvas 0(original)↔1(compressed)
 const canvases = KIND.map((_, i) => document.getElementById("c" + i));
 const ctxs = canvases.map(c => c.getContext("2d"));
 const views = KIND.map((_, i) => document.getElementById("v" + i));
@@ -127,6 +128,16 @@ let curName = null;       // 当前图片名
 let imgs = {};            // kind -> HTMLImageElement
 let imgSize = { w: 0, h: 0 };
 let annotations = [];     // {type:'missed'|'fp', x0,y0,x1,y1} 图像坐标
+let hoverCanvas = null;   // 鼠标当前悬停的 canvas 索引 (0/1/2), null=不在任何图上
+let shiftHeld = false;    // Shift 是否按住
+
+// 当前 canvas i 实际应显示的图 (Shift 切换: 悬停图显示另一张, 仅 original↔compressed)
+function displayKind(i) {
+  if (shiftHeld && (i === 0 || i === 1) && hoverCanvas === i) {
+    return KIND[SWAP_MAP[i]];
+  }
+  return KIND[i];
+}
 
 // 视图变换: 显示坐标 = 图像坐标 * scale + (tx, ty)
 let view = { scale: 1, tx: 0, ty: 0 };
@@ -165,7 +176,8 @@ function localPos(e, canvas) {
 
 // ========== 渲染 ==========
 function drawAll() {
-  KIND.forEach((k, i) => {
+  KIND.forEach((_, i) => {
+    const k = displayKind(i);   // Shift 切换后的实际图
     const c = canvases[i], ctx = ctxs[i];
     const dpr = window.devicePixelRatio || 1;
     const cw = c.clientWidth, ch = c.clientHeight;
@@ -176,6 +188,18 @@ function drawAll() {
     ctx.fillStyle = "#111";
     ctx.fillRect(0, 0, cw, ch);
     if (!imgs[k] || !imgSize.w) return;
+
+    // 动态标签: 显示当前实际内容 + Shift 切换提示
+    const labelDiv = views[i].querySelector(".label");
+    if (k !== KIND[i]) {
+      labelDiv.textContent = LABELS[SWAP_MAP[i]] + " (Shift 按住)";
+      labelDiv.style.background = "rgba(255, 212, 121, 0.85)";
+      labelDiv.style.color = "#000";
+    } else {
+      labelDiv.textContent = LABELS[i];
+      labelDiv.style.background = "rgba(0,0,0,0.65)";
+      labelDiv.style.color = "#fff";
+    }
 
     // 背景区(图像外)留黑, 图像内绘制
     ctx.save();
@@ -427,6 +451,30 @@ KIND.forEach((_, i) => {
   canvases[i].addEventListener("mouseup", onMouseUp);
   canvases[i].addEventListener("contextmenu", onContextMenu);
   canvases[i].addEventListener("mouseleave", () => { drag = null; });
+  canvases[i].addEventListener("mouseenter", () => {  // 悬停跟踪 (Shift 切换用)
+    hoverCanvas = i;
+    drawAll();
+  });
+  canvases[i].addEventListener("mouseleave", () => {
+    if (hoverCanvas === i) { hoverCanvas = null; drawAll(); }
+  });
+});
+
+// Shift 按住切换 original↔compressed (仅作用在鼠标悬停的图上)
+document.addEventListener("keydown", e => {
+  if (e.key === "Shift" && !shiftHeld) {
+    shiftHeld = true;
+    drawAll();
+  }
+});
+document.addEventListener("keyup", e => {
+  if (e.key === "Shift" && shiftHeld) {
+    shiftHeld = false;
+    drawAll();
+  }
+});
+window.addEventListener("blur", () => {  // 失焦时复位, 防止 Shift 卡死
+  if (shiftHeld) { shiftHeld = false; drawAll(); }
 });
 
 document.getElementById("imgSelect").onchange = e => switchTo(e.target.value);
