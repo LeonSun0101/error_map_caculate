@@ -255,7 +255,7 @@ function renderAnnList() {
 // ========== 交互: 缩放/平移/框选 ==========
 function onWheel(e) {
   e.preventDefault();
-  const pos = localPos(e, canvases[0]);
+  const pos = localPos(e, e.currentTarget);   // 用鼠标实际所在的 canvas
   const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
   const ns = Math.min(32, Math.max(0.02, view.scale * factor));
   // 以鼠标位置为锚点缩放
@@ -268,7 +268,7 @@ function onWheel(e) {
 }
 
 function onMouseDown(e) {
-  const pos = localPos(e, canvases[0]);
+  const pos = localPos(e, e.currentTarget);   // 用鼠标实际所在的 canvas
   if (e.button === 0) { // 左键: 平移
     drag = { mode: "pan", startX: pos.x, startY: pos.y, origTx: view.tx, origTy: view.ty };
   } else if (e.button === 2) { // 右键: 框选
@@ -281,14 +281,15 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-  const pos = localPos(e, canvases[0]);
+  const pos = localPos(e, e.currentTarget);   // 用鼠标实际所在的 canvas
   if (!drag) return;
   if (drag.mode === "pan") {
     view.tx = drag.origTx + (pos.x - drag.startX);
     view.ty = drag.origTy + (pos.y - drag.startY);
-  } else   if (drag.mode === "select" && sel) {
+  } else if (drag.mode === "select" && sel) {
     const ip = screenToImg(pos.x, pos.y);
     sel.x1 = ip.x; sel.y1 = ip.y;
+    clampSel();  // 拖动中即限制在图像内, 矩形始终可见且不越界
   }
   drawAll();
 }
