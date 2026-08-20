@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>压缩误差标注工具</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #1e1e1e; color: #e0e0e0; height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  header {
+    padding: 8px 16px; background: #2d2d2d; border-bottom: 1px solid #444;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; font-weight: 600; color: #fff; }
+  header .hint { font-size: 12px; color: #aaa; }
+  #imgSelect, #imgPrev, #imgNext { font-size: 13px; padding: 4px 10px; }
+  #saveBtn {
+    font-size: 13px; padding: 4px 14px; cursor: pointer;
+    background: #2d6cdf; color: #fff; border: none; border-radius: 4px;
+  }
+  #saveBtn:hover { background: #3a7ae0; }
+  #saveStatus { font-size: 12px; color: #7bc86c; }
+  .spacer { flex: 1; }
+  #annCount { font-size: 12px; color: #ffd479; }
+
+  main { flex: 1; display: flex; overflow: hidden; }
+  #views {
+    flex: 1; display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px; padding: 4px; min-width: 0;
+  }
+  .view { position: relative; background: #111; overflow: hidden; border: 1px solid #333; }
+  .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .view .label {
+    position: absolute; top: 6px; left: 8px; z-index: 5;
+    font-size: 12px; background: rgba(0,0,0,0.65); color: #fff;
+    padding: 2px 8px; border-radius: 3px; pointer-events: none;
+  }
+  .view .tag {
+    position: absolute; bottom: 6px; right: 8px; z-index: 5;
+    font-size: 11px; color: #aaa; background: rgba(0,0,0,0.5);
+    padding: 1px 6px; border-radius: 3px; pointer-events: none;
+  }
+
+  #panel {
+    width: 280px; background: #2d2d2d; border-left: 1px solid #444;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #panel h3 { font-size: 13px; padding: 10px 12px 6px; color: #ccc; }
+  #annList { flex: 1; overflow-y: auto; padding: 4px 8px; }
+  .ann-item {
+    display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+    font-size: 12px; border-radius: 3px; margin-bottom: 2px; cursor: default;
+  }
+  .ann-item:hover { background: #3a3a3a; }
+  .ann-item .type { padding: 1px 8px; border-radius: 3px; font-size: 11px; color: #fff; }
+  .ann-item .type.missed { background: #c0392b; }
+  .ann-item .type.fp { background: #2980b9; }
+  .ann-item .coords { color: #aaa; flex: 1; }
+  .ann-item .del { cursor: pointer; color: #e74c3c; font-weight: bold; padding: 0 4px; }
+  .ann-item .del:hover { color: #ff6b5e; }
+
+  /* 右键框选确认浮层 */
+  #confirmBox {
+    display: none; position: fixed; z-index: 100;
+    background: #2d2d2d; border: 1px solid #555; border-radius: 6px;
+    padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  #confirmBox button {
+    display: block; width: 100%; margin: 3px 0; padding: 6px 12px;
+    font-size: 13px; border: none; border-radius: 4px; cursor: pointer; color: #fff;
+  }
+  #confirmBox .b-missed { background: #c0392b; }
+  #confirmBox .b-missed:hover { background: #d64a3b; }
+  #confirmBox .b-fp { background: #2980b9; }
+  #confirmBox .b-fp:hover { background: #3498db; }
+  #confirmBox .b-cancel { background: #555; }
+  #confirmBox .b-cancel:hover { background: #666; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>压缩误差标注工具 <span id="ver" style="font-size:11px;color:#888;font-weight:normal">v2.1 (矩形增强)</span></h1>
+  <span class="hint">滚轮缩放 · 左键拖动（三图同步）· 右键框选标注 · 标漏检/误检</span>
+  <span class="spacer"></span>
+  <select id="imgSelect"></select>
+  <button id="imgPrev">◀ 上一张</button>
+  <button id="imgNext">下一张 ▶</button>
+  <button id="saveBtn">保存标注</button>
+  <span id="saveStatus"></span>
+  <span id="annCount"></span>
+</header>
+
+<main>
+  <div id="views">
+    <div class="view" id="v0"><div class="label">original</div><canvas id="c0"></canvas><div class="tag" id="t0"></div></div>
+    <div class="view" id="v1"><div class="label">compressed q80</div><canvas id="c1"></canvas><div class="tag" id="t1"></div></div>
+    <div class="view" id="v2"><div class="label">errormap 叠加 (50%)</div><canvas id="c2"></canvas><div class="tag" id="t2"></div></div>
+  </div>
+  <div id="panel">
+    <h3>标注列表 <span style="color:#666;font-weight:normal">(漏检红 / 误检蓝)</span></h3>
+    <div id="annList"></div>
+  </div>
+</main>
+
+<div id="confirmBox">
+  <button class="b-missed" id="mkMissed">标记为漏检</button>
+  <button class="b-fp" id="mkFP">标记为误检</button>
+  <button class="b-cancel" id="mkCancel">取消</button>
+</div>
+
+<script>
+"use strict";
+
+// ========== 状态 ==========
+const KIND = ["original", "compressed", "overlay"];
+const LABELS = ["original", "compressed q80", "errormap 叠加"];
+const canvases = KIND.map((_, i) => document.getElementById("c" + i));
+const ctxs = canvases.map(c => c.getContext("2d"));
+const views = KIND.map((_, i) => document.getElementById("v" + i));
+
+let images = [];          // 图片名列表
+let curName = null;       // 当前图片名
+let imgs = {};            // kind -> HTMLImageElement
+let imgSize = { w: 0, h: 0 };
+let annotations = [];     // {type:'missed'|'fp', x0,y0,x1,y1} 图像坐标
+
+// 视图变换: 显示坐标 = 图像坐标 * scale + (tx, ty)
+let view = { scale: 1, tx: 0, ty: 0 };
+
+// 框选状态
+let sel = null;           // {x0,y0,x1,y1} 图像坐标 (进行中或待确认)
+let drag = null;          // {mode:'pan'|'select', startX, startY, origTx, origTy, selStart}
+
+// ========== 工具 ==========
+function fitView() {
+  // 初始视图: 以第一张 canvas 尺寸 fit
+  const cw = canvases[0].clientWidth, ch = canvases[0].clientHeight;
+  if (!cw || !ch || !imgSize.w) return;
+  view.scale = Math.min(cw / imgSize.w, ch / imgSize.h);
+  view.tx = (cw - imgSize.w * view.scale) / 2;
+  view.ty = (ch - imgSize.h * view.scale) / 2;
+}
+
+function imgToScreen(ix, iy) {
+  return { x: ix * view.scale + view.tx, y: iy * view.scale + view.ty };
+}
+function screenToImg(sx, sy) {
+  return { x: (sx - view.tx) / view.scale, y: (sy - view.ty) / view.scale };
+}
+
+function canvasPos(e) {
+  const rect = canvases[0].getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+// 每张 canvas 内部坐标(相对自身) — 因为三图同尺寸同变换, 用第一张的 rect 换算即可
+function localPos(e, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+// ========== 渲染 ==========
+function drawAll() {
+  KIND.forEach((k, i) => {
+    const c = canvases[i], ctx = ctxs[i];
+    const dpr = window.devicePixelRatio || 1;
+    const cw = c.clientWidth, ch = c.clientHeight;
+    if (c.width !== cw * dpr || c.height !== ch * dpr) {
+      c.width = cw * dpr; c.height = ch * dpr;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, cw, ch);
+    if (!imgs[k] || !imgSize.w) return;
+
+    // 背景区(图像外)留黑, 图像内绘制
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, cw, ch); ctx.clip();
+    ctx.drawImage(
+      imgs[k], view.tx, view.ty, imgSize.w * view.scale, imgSize.h * view.scale
+    );
+
+    // 绘制已确认标注 (矩形跟随图像缩放, 标签文字恒定屏幕大小)
+    annotations.forEach(a => {
+      const p0 = imgToScreen(a.x0, a.y0), p1 = imgToScreen(a.x1, a.y1);
+      const w = Math.max(2, p1.x - p0.x), h = Math.max(2, p1.y - p0.y);
+      const color = a.type === "missed" ? "#ff4d3a" : "#3a9bff";
+      const label = a.type === "missed" ? "漏检" : "误检";
+      // 半透明填充 (区域醒目)
+      ctx.fillStyle = a.type === "missed" ? "rgba(255,77,58,0.25)" : "rgba(58,155,255,0.25)";
+      ctx.fillRect(p0.x, p0.y, w, h);
+      // 实线边框
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(p0.x, p0.y, w, h);
+      // 类型标签: 背景色块 + 白字 (不随缩放变形, 保持可读)
+      ctx.font = "bold 12px sans-serif";
+      const tw = ctx.measureText(label).width;
+      const tagY = Math.max(0, p0.y - 20);  // 防止标签超出画布顶部
+      ctx.fillStyle = color;
+      ctx.fillRect(p0.x, tagY, tw + 8, 18);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, p0.x + 4, tagY + 13);
+    });
+
+    // 进行中的框选 (实时可视化: 半透明填充 + 亮黄实线 + 尺寸提示, 高对比度)
+    if (sel && (sel.pending || sel.active)) {
+      const p0 = imgToScreen(sel.x0, sel.y0), p1 = imgToScreen(sel.x1, sel.y1);
+      const w = p1.x - p0.x, h = p1.y - p0.y;
+      ctx.fillStyle = "rgba(255, 212, 121, 0.25)";   // 亮黄填充, 深色/浅色图像上都可见
+      ctx.fillRect(p0.x, p0.y, w, h);
+      ctx.strokeStyle = "#ffd479";                    // 亮黄实线 (替代原白色虚线)
+      ctx.lineWidth = 3;
+      ctx.strokeRect(p0.x, p0.y, w, h);
+      // 尺寸提示 (图像像素)
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillStyle = "#ffd479";
+      const sw = Math.round(Math.abs(sel.x1 - sel.x0));
+      const sh = Math.round(Math.abs(sel.y1 - sel.y0));
+      ctx.fillText(`${sw} x ${sh} px`, p0.x + 4, p0.y + 16);
+    }
+    ctx.restore();
+
+    document.getElementById("t" + i).textContent =
+      `${Math.round(view.scale * 100)}%  ${Math.round(view.tx)}/${Math.round(view.ty)}`;
+  });
+}
+
+function renderAnnList() {
+  const list = document.getElementById("annList");
+  list.innerHTML = "";
+  annotations.forEach((a, idx) => {
+    const div = document.createElement("div");
+    div.className = "ann-item";
+    const typeSpan = document.createElement("span");
+    typeSpan.className = "type " + (a.type === "missed" ? "missed" : "fp");
+    typeSpan.textContent = a.type === "missed" ? "漏检" : "误检";
+    const coords = document.createElement("span");
+    coords.className = "coords";
+    coords.textContent = `(${Math.round(a.x0)},${Math.round(a.y0)}) - (${Math.round(a.x1)},${Math.round(a.y1)})`;
+    const del = document.createElement("span");
+    del.className = "del";
+    del.textContent = "✕";
+    del.onclick = () => { annotations.splice(idx, 1); renderAnnList(); drawAll(); };
+    div.append(typeSpan, coords, del);
+    list.appendChild(div);
+  });
+  document.getElementById("annCount").textContent = `标注 ${annotations.length} 条`;
+}
+
+// ========== 交互: 缩放/平移/框选 ==========
+function onWheel(e) {
+  e.preventDefault();
+  const pos = localPos(e, canvases[0]);
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  const ns = Math.min(32, Math.max(0.02, view.scale * factor));
+  // 以鼠标位置为锚点缩放
+  const wx = (pos.x - view.tx) / view.scale;
+  const wy = (pos.y - view.ty) / view.scale;
+  view.scale = ns;
+  view.tx = pos.x - wx * ns;
+  view.ty = pos.y - wy * ns;
+  drawAll();
+}
+
+function onMouseDown(e) {
+  const pos = localPos(e, canvases[0]);
+  if (e.button === 0) { // 左键: 平移
+    drag = { mode: "pan", startX: pos.x, startY: pos.y, origTx: view.tx, origTy: view.ty };
+  } else if (e.button === 2) { // 右键: 框选
+    const ip = screenToImg(pos.x, pos.y);
+    sel = { x0: ip.x, y0: ip.y, x1: ip.x, y1: ip.y, active: true, pending: false };
+    drag = { mode: "select", startX: pos.x, startY: pos.y };
+    hideConfirm();
+  }
+  e.preventDefault();
+}
+
+function onMouseMove(e) {
+  const pos = localPos(e, canvases[0]);
+  if (!drag) return;
+  if (drag.mode === "pan") {
+    view.tx = drag.origTx + (pos.x - drag.startX);
+    view.ty = drag.origTy + (pos.y - drag.startY);
+  } else   if (drag.mode === "select" && sel) {
+    const ip = screenToImg(pos.x, pos.y);
+    sel.x1 = ip.x; sel.y1 = ip.y;
+  }
+  drawAll();
+}
+
+function clampSel() {
+  // 框选坐标限制在图像范围内 (避免视图平移后产生负坐标/越界标注)
+  const x0 = Math.max(0, Math.min(sel.x0, sel.x1));
+  const x1 = Math.min(imgSize.w, Math.max(sel.x0, sel.x1));
+  const y0 = Math.max(0, Math.min(sel.y0, sel.y1));
+  const y1 = Math.min(imgSize.h, Math.max(sel.y0, sel.y1));
+  sel.x0 = x0; sel.x1 = x1; sel.y0 = y0; sel.y1 = y1;
+}
+
+function onMouseUp(e) {
+  if (!drag) return;
+  if (drag.mode === "select" && sel) {
+    sel.active = false;
+    clampSel();  // 归一化 + 限制在图像范围内
+    // 面积阈值(图像像素): 太小的框视为误操作
+    const area = (sel.x1 - sel.x0) * (sel.y1 - sel.y0);
+    if (area >= 400) {
+      sel.pending = true;
+      showConfirm(e.clientX, e.clientY);
+    } else {
+      sel = null;
+    }
+  }
+  drag = null;
+  drawAll();
+}
+
+function onContextMenu(e) { e.preventDefault(); }
+
+// ========== 确认浮层 ==========
+function showConfirm(cx, cy) {
+  const box = document.getElementById("confirmBox");
+  box.style.display = "block";
+  // 防止超出视口
+  const bw = box.offsetWidth, bh = box.offsetHeight;
+  let px = cx + 8, py = cy + 8;
+  if (px + bw > window.innerWidth) px = cx - bw - 8;
+  if (py + bh > window.innerHeight) py = cy - bh - 8;
+  box.style.left = px + "px";
+  box.style.top = py + "px";
+}
+function hideConfirm() {
+  document.getElementById("confirmBox").style.display = "none";
+}
+function commitSel(type) {
+  if (sel && sel.pending) {
+    annotations.push({ type: type, x0: sel.x0, y0: sel.y0, x1: sel.x1, y1: sel.y1 });
+  }
+  sel = null;
+  hideConfirm();
+  renderAnnList();
+  drawAll();
+}
+
+document.getElementById("mkMissed").onclick = () => commitSel("missed");
+document.getElementById("mkFP").onclick = () => commitSel("fp");
+document.getElementById("mkCancel").onclick = () => { sel = null; hideConfirm(); drawAll(); };
+
+// ========== 图片加载/切换 ==========
+function loadImage(kind) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("load fail " + kind));
+    img.src = `/image/${curName}/${kind}`;
+  });
+}
+
+async function loadCurrentImage() {
+  imgs = {};
+  sel = null; drag = null; hideConfirm();
+  annotations = await fetch(`/api/annotations/${curName}`)
+    .then(r => r.json()).then(d => d.annotations || []).catch(() => []);
+  const loaded = await Promise.all(KIND.map(k => loadImage(k)));
+  KIND.forEach((k, i) => { imgs[k] = loaded[i]; });
+  imgSize = { w: loaded[0].naturalWidth, h: loaded[0].naturalHeight };
+  fitView();
+  renderAnnList();
+  drawAll();
+  updateAnnBtn();
+  document.getElementById("saveStatus").textContent = `已加载 ${curName} (${annotations.length} 条标注)`;
+}
+
+async function refreshList() {
+  const d = await fetch("/api/images").then(r => r.json());
+  images = d.images || [];
+  const selBox = document.getElementById("imgSelect");
+  selBox.innerHTML = "";
+  images.forEach(n => {
+    const opt = document.createElement("option");
+    opt.value = n; opt.textContent = n;
+    selBox.appendChild(opt);
+  });
+  if (images.length === 0) {
+    document.getElementById("saveStatus").textContent = "无可用图片 (先跑 validation/export_results.py)";
+    return;
+  }
+  const want = curName && images.includes(curName) ? curName : images[0];
+  selBox.value = want;
+  await switchTo(want);
+}
+
+async function switchTo(name) {
+  curName = name;
+  document.getElementById("imgSelect").value = name;
+  await loadCurrentImage();
+}
+
+// ========== 保存 ==========
+function updateAnnBtn() {
+  // 高亮变化提示
+}
+async function saveAnnotations() {
+  if (!curName) return;
+  const resp = await fetch(`/api/annotations/${curName}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: curName, annotations: annotations }),
+  });
+  const d = await resp.json();
+  document.getElementById("saveStatus").textContent =
+    d.ok ? `已保存 ${d.count} 条标注 (${curName})` : `保存失败: ${JSON.stringify(d)}`;
+  setTimeout(() => { document.getElementById("saveStatus").textContent = ""; }, 3000);
+}
+
+// ========== 事件绑定 ==========
+KIND.forEach((_, i) => {
+  canvases[i].addEventListener("wheel", onWheel, { passive: false });
+  canvases[i].addEventListener("mousedown", onMouseDown);
+  canvases[i].addEventListener("mousemove", onMouseMove);
+  canvases[i].addEventListener("mouseup", onMouseUp);
+  canvases[i].addEventListener("contextmenu", onContextMenu);
+  canvases[i].addEventListener("mouseleave", () => { drag = null; });
+});
+
+document.getElementById("imgSelect").onchange = e => switchTo(e.target.value);
+document.getElementById("imgPrev").onclick = () => {
+  const i = images.indexOf(curName);
+  if (i > 0) switchTo(images[i - 1]);
+};
+document.getElementById("imgNext").onclick = () => {
+  const i = images.indexOf(curName);
+  if (i < images.length - 1) switchTo(images[i + 1]);
+};
+document.getElementById("saveBtn").onclick = saveAnnotations;
+
+window.addEventListener("resize", () => { fitView(); drawAll(); });
+
+refreshList();
+</script>
+</body>
+</html>
