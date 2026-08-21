@@ -17,7 +17,7 @@ pip install -r requirements.txt
 python main.py                          # 下载 Kodak kodim19 并全流程评价
 python main.py --image 本地图.png       # 用本地图, 跳过下载
 python main.py --out output --seed 42 --jpeg-quality 80 --tau 1.5 \
-    --edge-weight 2.0 --threshold-percentile 82 --threshold-floor 0.3
+    --threshold-percentile 82 --threshold-floor 0.3
 ```
 
 ## 流水线

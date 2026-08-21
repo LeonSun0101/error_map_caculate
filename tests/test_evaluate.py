@@ -2,17 +2,23 @@ import numpy as np
 from PIL import Image
 
 from error_map.compress import compress_jpeg
-from error_map.evaluate import build_error_map_and_mask, compute_error_map, error_map_to_mask, rgb_to_luma, save_error_map_blend, save_overlay
+from error_map.evaluate import build_error_map_and_mask, compute_error_map_fused, error_map_to_mask, rgb_to_luma, save_error_map_blend, save_overlay
 
 
 def test_flat_image_with_lowfreq_blob_has_tiny_error():
-    """低频亮色差异被抑制: 纯灰图+平滑亮斑 → soft errormap < 阈值地板 0.02."""
+    """低频亮色差异被抑制: 纯灰图+平滑亮斑 → 融合误差整体强度远低于真实退化."""
     ref = np.full((128, 128, 3), 128, dtype=np.uint8)
     ys, xs = np.mgrid[0:128, 0:128]
     blob = np.exp(-(((ys - 64) / 40.0) ** 2 + ((xs - 64) / 40.0) ** 2))
     deg = np.clip(ref.astype(np.float64) * (1.0 + 0.3 * blob[..., None]), 0, 255).astype(np.uint8)
-    err = compute_error_map(ref, deg)
-    assert err.max() < 0.02
+    err_blob = compute_error_map_fused(ref, deg)
+    # 对照: 真实退化场景 (对比度拉伸破坏结构)
+    rng = np.random.default_rng(0)
+    ref2 = rng.integers(0, 256, (128, 128, 3), dtype=np.uint8)
+    deg2 = np.clip(ref2.astype(np.float64) * 0.9, 0, 255).astype(np.uint8)
+    err_deg = compute_error_map_fused(ref2, deg2)
+    # 平滑低频亮斑的整体误差强度应显著低于结构退化
+    assert err_blob.mean() < 0.6 * err_deg.mean()
 
 
 def test_error_concentrated_at_stripes(tmp_path):
@@ -25,7 +31,7 @@ def test_error_concentrated_at_stripes(tmp_path):
     img = np.full((256, 256, 3), 128, dtype=np.uint8)  # 平坦背景
     img[:, 64:192] = np.broadcast_to(stripes[None, :, None], (256, 128, 3))
     decoded = np.asarray(Image.open(compress_jpeg(img, tmp_path / "s.jpg", quality=80)).convert("RGB"))
-    err = compute_error_map(img, decoded)
+    err = compute_error_map_fused(img, decoded)
     luma = rgb_to_luma(img)
     assert luma[:, 64:192].std() > 100 * luma[:, :64].std()  # 条纹区有结构, 背景平坦
     stripe_region = np.zeros((256, 256), dtype=bool)
