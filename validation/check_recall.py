@@ -14,7 +14,7 @@ NAMES = ["kodim01", "kodim05", "kodim08", "kodim12", "kodim23"]
 
 def main():
     total_rec, total = 0, 0
-    print("=== 新算法 (多指标融合 p85) 对标注框召回 ===")
+    print("=== 新算法 (多指标融合 p82) 对标注框召回 ===")
     for n in NAMES:
         p = ANN / f"{n}.json"
         if not p.exists():

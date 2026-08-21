@@ -4,7 +4,7 @@
   D_comp   = |compressed - original| 像素差 (压缩真实损伤)
   D_algn   = |aligned - original|     对齐后残差 (evaluate 输入)
   GT       = 1 - SSIM(orig, comp)     压缩退化地面真值
-  err_our  = compute_error_map 输出   我们的 errormap
+  err_our  = compute_error_map_fused 输出   我们的 errormap
   err_raw  = 1 - SSIM(orig, aligned)  低频抑制前的误差
   err_det  = err_raw - gauss(err_raw) 低频抑制后 (步骤②)
   边缘密度 / 局部方差 (平滑 vs 纹理)
@@ -23,7 +23,7 @@ from scipy.ndimage import gaussian_filter, uniform_filter
 from skimage.filters import sobel
 from skimage.metrics import structural_similarity
 
-from error_map.evaluate import compute_error_map, rgb_to_luma
+from error_map.evaluate import compute_error_map_fused, rgb_to_luma
 
 ANN = Path("validation") / "annotations"
 RUNS = Path("validation") / "runs"
@@ -67,8 +67,8 @@ def main():
         d_algn = np.abs(algn - orig).mean(axis=2)
         gt = ssim_loss(orig, comp)
         err_raw = ssim_loss(orig, algn)
-        err_det = np.clip(err_raw - gaussian_filter(err_raw, 8.0), 0.0, None)
-        err_our = compute_error_map(orig, algn)
+        err_det = np.clip(err_raw - gaussian_filter(err_raw, 24.0), 0.0, None)
+        err_our = compute_error_map_fused(orig, algn)
         edge = sobel(rgb_to_luma(orig))
         luma = rgb_to_luma(orig)
         flat = np.abs(luma - uniform_filter(luma, 15))
